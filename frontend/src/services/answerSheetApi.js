@@ -38,6 +38,14 @@ export const answerSheetApi = {
    */
   processAnswerSheet: (id) =>
     api.post(`/answer-sheets/${id}/process`),
+
+  /**
+   * Lưu đáp án đã chỉnh sửa thủ công của giáo viên.
+   * @param {number} id - Answer sheet ID
+   * @param {{ answers: Array<{question_number: string, answer: string|null}> }} body
+   */
+  saveOcrAnswers: (id, body) =>
+    api.patch(`/answer-sheets/${id}/ocr-answers`, body),
 }
 
 export default answerSheetApi

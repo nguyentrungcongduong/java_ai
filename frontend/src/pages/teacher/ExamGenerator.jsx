@@ -6,7 +6,7 @@ import {
   Sparkles, Brain, Loader2, RefreshCw, Save, Trash2,
   CheckCircle2, AlertCircle, ChevronDown, ChevronUp,
   BookOpen, Sliders, FileText, BarChart3, Plus, X,
-  GraduationCap, Clock, Shuffle, Eye, EyeOff
+  GraduationCap, Clock, Shuffle, Eye, EyeOff, Printer
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -18,7 +18,7 @@ const SUBJECTS = [
   'Công nghệ', 'Thể dục', 'Khác'
 ];
 
-const GRADES = ['6', '7', '8', '9', '10', '11', '12'];
+const GRADES = ['10', '11', '12'];
 
 const QUESTION_TYPES = [
   { value: 'MULTIPLE_CHOICE', label: 'Trắc nghiệm (4 đáp án)' },
@@ -344,6 +344,83 @@ const ExamGenerator = () => {
     }
   };
 
+  // ── Print / Export PDF ──
+  const handlePrint = () => {
+    if (!examResult || previewList.length === 0) return;
+
+    const LABELS = ['A', 'B', 'C', 'D', 'E'];
+    const questionsHtml = previewList.map((item, idx) => {
+      const q = item.question || item;
+      const options = q.options || [];
+      const optionsHtml = options.length > 0
+        ? `<div class="options">${options.map((o, i) => {
+            const label = o.label || LABELS[i] || String(i + 1);
+            return `<div class="option"><span class="opt-label">${label}.</span> ${o.text || o}</div>`;
+          }).join('')}</div>`
+        : '';
+      return `
+        <div class="question">
+          <p class="q-content"><strong>Câu ${idx + 1}.</strong> ${q.content}</p>
+          ${optionsHtml}
+        </div>`;
+    }).join('');
+
+    // Answer key
+    const answerKey = previewList.map((item, idx) => {
+      const q = item.question || item;
+      const correct = (q.options || []).find(o => o.isCorrect);
+      if (!correct) return `<span class="ans">Câu ${idx + 1}: ${q.correctAnswer || '...'}</span>`;
+      const i = (q.options || []).indexOf(correct);
+      return `<span class="ans">Câu ${idx + 1}: ${correct.label || 'ABCDE'[i]}</span>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html lang="vi"><head>
+      <meta charset="UTF-8"/>
+      <title>${examResult.title || 'Đề thi'}</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Times New Roman', serif; font-size: 13pt; line-height: 1.6; padding: 20mm 20mm 20mm 25mm; color: #000; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .school { font-size: 11pt; text-transform: uppercase; font-weight: bold; }
+        .title { font-size: 16pt; font-weight: bold; text-transform: uppercase; margin: 8px 0 4px; }
+        .meta { font-size: 11pt; color: #333; }
+        .divider { border: none; border-top: 2px solid #000; margin: 16px 0; }
+        .question { margin-bottom: 18px; page-break-inside: avoid; }
+        .q-content { font-weight: normal; margin-bottom: 6px; }
+        .options { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; padding-left: 16px; }
+        .option { font-size: 12pt; }
+        .opt-label { font-weight: bold; }
+        .answer-key { margin-top: 32px; border-top: 1px dashed #666; padding-top: 16px; }
+        .answer-key h3 { font-size: 12pt; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+        .ans { display: inline-block; margin: 2px 12px 2px 0; font-size: 11pt; }
+        @media print { body { padding: 0; } }
+      </style>
+    </head><body>
+      <div class="header">
+        <div class="school">PlanbookAI – Hệ thống quản lý giáo dục</div>
+        <div class="title">${examResult.title || 'ĐỀ KIỂM TRA'}</div>
+        <div class="meta">
+          Môn: ${examResult.subject || ''} &nbsp;|&nbsp;
+          Lớp: ${examResult.gradeLevel || ''} &nbsp;|&nbsp;
+          Thời gian: ${examResult.durationMins || 45} phút
+          (Không kể thời gian phát đề)
+        </div>
+      </div>
+      <hr class="divider"/>
+      ${questionsHtml}
+      <div class="answer-key">
+        <h3>Đáp án</h3>
+        ${answerKey}
+      </div>
+    </body></html>`;
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 500);
+  };
+
   const bankCount = previewList.filter(q => (q.source || '') !== 'AI').length;
   const aiCount   = previewList.filter(q => (q.source || '') === 'AI').length;
 
@@ -584,6 +661,16 @@ const ExamGenerator = () => {
                   >
                     {showExplanations ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                     {showExplanations ? 'Ẩn giải thích' : 'Hiện giải thích'}
+                  </button>
+
+                  {/* Print */}
+                  <button
+                    onClick={handlePrint}
+                    className="flex items-center gap-1.5 text-xs font-black px-3 py-1.5 text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-all"
+                    title="In đề / Xuất PDF"
+                  >
+                    <Printer className="size-3.5" />
+                    In đề
                   </button>
 
                   {/* Regenerate */}

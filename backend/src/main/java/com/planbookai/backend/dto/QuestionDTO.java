@@ -89,6 +89,7 @@ public class QuestionDTO {
         private Long createdById;
         private String createdByName;
         private Boolean isPublished;
+        private Boolean isOwnBank;   // true = do chính teacher này tạo
         private LocalDateTime createdAt;
     }
 }

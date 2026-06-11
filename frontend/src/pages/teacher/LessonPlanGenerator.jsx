@@ -19,9 +19,14 @@ import {
   Home,
   StickyNote,
   FileEdit,
+  FileUp,
+  X,
+  FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import lessonPlanApi from '../../services/lessonPlanApi'
+import promptTemplateApi from '../../services/promptTemplateApi'
+import frameworkApi from '../../services/frameworkApi'
 
 /**
  * LessonPlanGenerator – Trang sinh giáo án bằng AI.
@@ -54,6 +59,18 @@ const LessonPlanGenerator = ({ onBack }) => {
     durationMinutes: 45,
     framework: 'E5',
   })
+
+  // --- Template state ---
+  const [lessonTemplates, setLessonTemplates] = useState([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+
+  // --- Curriculum Framework state ---
+  const [curriculumFrameworks, setCurriculumFrameworks] = useState([])
+  const [selectedFrameworkId, setSelectedFrameworkId] = useState('')
+
+  // --- File Upload State ---
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const fileInputRef = useRef(null)
 
   // --- AI Generation State ---
   const [isGenerating, setIsGenerating] = useState(false)
@@ -142,6 +159,20 @@ const LessonPlanGenerator = ({ onBack }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [isDirty])
 
+  // --- Fetch approved LESSON_PLAN_GEN templates on mount ---
+  useEffect(() => {
+    promptTemplateApi.getApproved('LESSON_PLAN_GEN')
+      .then(res => setLessonTemplates(res.data || []))
+      .catch(() => {}) // silent fail
+  }, [])
+
+  // --- Fetch published Curriculum Frameworks on mount ---
+  useEffect(() => {
+    frameworkApi.getPublishedFrameworks()
+      .then(res => setCurriculumFrameworks(res.data || []))
+      .catch(() => {})
+  }, [])
+
   // --- Update form field ---
   const handleFormChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -158,16 +189,117 @@ const LessonPlanGenerator = ({ onBack }) => {
     setSaveError('')
 
     try {
-      const res = await lessonPlanApi.generatePreview({
-        subject: form.subject,
+      // Lấy cấu trúc framework từ DB nếu Teacher đã chọn
+      const selectedFw = curriculumFrameworks.find(f => String(f.id) === String(selectedFrameworkId))
+      const frameworkStructure = selectedFw?.structure
+        ? (typeof selectedFw.structure === 'string'
+            ? selectedFw.structure
+            : JSON.stringify(selectedFw.structure, null, 2))
+        : form.framework // fallback về E5/E3...
+
+      if (selectedTemplateId) {
+        // ── Dùng Prompt Template đã duyệt ──
+        const inputs = {
+          subject: form.subject,
+          grade: form.gradeLevel,
+          topic: form.topic,
+          objectives: form.objectives || '',
+          duration: String(form.durationMinutes) + ' phút',
+          framework: selectedFw ? selectedFw.title : form.framework,
+          framework_structure: frameworkStructure,
+        }
+        const res = await promptTemplateApi.generate(Number(selectedTemplateId), inputs)
+        const rawContent = res.data?.content || ''
+
+        // Thử parse JSON từ AI response
+        let parsedData = null
+        try {
+          // Tìm JSON block trong response (AI đôi khi trả về text + JSON)
+          const jsonMatch = rawContent.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            parsedData = JSON.parse(jsonMatch[0])
+          }
+        } catch (e) {
+          // Parse thất bại → dùng notes fallback
+        }
+
+        if (parsedData) {
+          // ✅ Parse thành công → map đúng fields
+          setAiGeneratedData({
+            title: parsedData.title || `Giáo án: ${form.topic}`,
+            subject: parsedData.subject || form.subject,
+            gradeLevel: parsedData.gradeLevel || form.gradeLevel,
+            framework: parsedData.framework || selectedFw?.title || form.framework,
+            lessonObjectives: Array.isArray(parsedData.lessonObjectives) ? parsedData.lessonObjectives : [],
+            materialItems: Array.isArray(parsedData.materialItems) ? parsedData.materialItems : [],
+            lessonFlow: Array.isArray(parsedData.lessonFlow) ? parsedData.lessonFlow : [],
+            assessmentDetail: parsedData.assessmentDetail || { methods: [], criteria: '' },
+            homework: parsedData.homework || '',
+            notes: parsedData.notes || '',
+          })
+          toast.success('AI đã sinh giáo án từ template!')
+        } else {
+          // ❌ Không parse được → hiển thị raw text trong notes
+          setAiGeneratedData({
+            title: `Giáo án: ${form.topic}`,
+            subject: form.subject,
+            gradeLevel: form.gradeLevel,
+            framework: selectedFw?.title || form.framework,
+            notes: rawContent,
+            lessonObjectives: [],
+            materialItems: [],
+            lessonFlow: [],
+            assessmentDetail: { methods: [], criteria: '' },
+            homework: '',
+          })
+          toast.success('AI đã sinh giáo án (dạng văn bản) từ template!')
+        }
+      } else {
+        // ── Dùng prompt mặc định ──
+        const res = await lessonPlanApi.generatePreview({
+          subject: form.subject,
+          gradeLevel: form.gradeLevel,
+          topic: form.topic,
+          objectives: form.objectives || '',
+          durationMinutes: form.durationMinutes,
+          framework: selectedFw ? selectedFw.title : form.framework,
+          frameworkStructure: frameworkStructure,
+        })
+        setAiGeneratedData(res.data)
+        toast.success('AI đã sinh giáo án thành công!')
+      }
+
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Có lỗi xảy ra'
+      setGenerateError(msg)
+      toast.error(msg)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  // --- Generate lesson plan from file ---
+  const doGenerateFromFile = async () => {
+    if (!uploadedFile) return toast.error('Vui lòng chọn file PDF hoặc DOCX')
+    if (!form.gradeLevel.trim()) return toast.error('Vui lòng nhập khối lớp')
+
+    setIsGenerating(true)
+    setGenerateError('')
+    setAiGeneratedData(null)
+    setEditorValue(null)
+    setHasGenerated(false)
+    setIsDirty(false)
+    setSaveError('')
+
+    try {
+      const res = await lessonPlanApi.generateFromFile(uploadedFile, {
         gradeLevel: form.gradeLevel,
-        topic: form.topic,
-        objectives: form.objectives || '',
         durationMinutes: form.durationMinutes,
         framework: form.framework,
+        objectives: form.objectives || '',
       })
       setAiGeneratedData(res.data)
-      toast.success('AI đã sinh giáo án thành công!')
+      toast.success('AI đã sinh giáo án từ tài liệu thành công!')
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Có lỗi xảy ra'
       setGenerateError(msg)
@@ -490,6 +622,32 @@ const LessonPlanGenerator = ({ onBack }) => {
                 </h2>
               </div>
 
+              {/* Prompt Template Selector */}
+              {lessonTemplates.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-indigo-600 flex items-center gap-1">
+                    <FileText size={12} /> Prompt Template
+                    <span className="normal-case font-normal text-slate-400 text-[10px]">(Tuỳ chọn)</span>
+                  </label>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                    disabled={isGenerating}
+                    className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-bold text-indigo-800 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
+                  >
+                    <option value="">-- Dùng prompt mặc định --</option>
+                    {lessonTemplates.map(t => (
+                      <option key={t.id} value={t.id}>{t.title}</option>
+                    ))}
+                  </select>
+                  {selectedTemplateId && (
+                    <p className="text-[10px] text-indigo-500 font-semibold">
+                      ✅ Sẽ dùng prompt template đã được Manager duyệt
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Subject */}
               <div className="space-y-1">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -504,6 +662,7 @@ const LessonPlanGenerator = ({ onBack }) => {
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
                 />
               </div>
+
 
               {/* Grade Level */}
               <div className="space-y-1">
@@ -572,22 +731,106 @@ const LessonPlanGenerator = ({ onBack }) => {
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Framework
+                    Khung chương trình
                   </label>
-                  <select
-                    value={form.framework}
-                    onChange={(e) => handleFormChange('framework', e.target.value)}
-                    disabled={isGenerating}
-                    className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
-                  >
-                    <option value="E5">E5</option>
-                    <option value="E3">E3</option>
-                    <option value="E4">E4</option>
-                    <option value="BACKWARD_DESIGN">Backward Design</option>
-                    <option value="TGAP">TGAP</option>
-                  </select>
+                  {curriculumFrameworks.length > 0 ? (
+                    <>
+                      <select
+                        value={selectedFrameworkId}
+                        onChange={(e) => setSelectedFrameworkId(e.target.value)}
+                        disabled={isGenerating}
+                        className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
+                      >
+                        <option value="">-- Chọn khung --</option>
+                        {curriculumFrameworks.map(fw => (
+                          <option key={fw.id} value={fw.id}>{fw.title}</option>
+                        ))}
+                      </select>
+                      {selectedFrameworkId && (
+                        <p className="text-[10px] text-emerald-600 font-semibold">
+                          ✅ AI sẽ tạo giáo án đúng cấu trúc khung này
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <select
+                      value={form.framework}
+                      onChange={(e) => handleFormChange('framework', e.target.value)}
+                      disabled={isGenerating}
+                      className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
+                    >
+                      <option value="E5">E5 (5 bước)</option>
+                      <option value="E3">E3 (3 bước)</option>
+                      <option value="E4">E4 (4 bước)</option>
+                      <option value="BACKWARD_DESIGN">Backward Design</option>
+                      <option value="TGAP">TGAP</option>
+                    </select>
+                  )}
                 </div>
+
               </div>
+
+              {/* Divider */}
+              <div className="relative flex items-center">
+                <div className="flex-1 border-t border-slate-200" />
+                <span className="px-3 text-xs font-bold text-slate-400 uppercase tracking-wider">Hoặc nhập từ tài liệu</span>
+                <div className="flex-1 border-t border-slate-200" />
+              </div>
+
+              {/* File upload area */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                  <FileUp size={12} />
+                  Upload PDF / DOCX (tùy chọn)
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) setUploadedFile(f)
+                  }}
+                />
+                {uploadedFile ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl">
+                    <FileText size={16} className="text-indigo-500 flex-shrink-0" />
+                    <span className="text-xs font-medium text-indigo-700 flex-1 truncate">{uploadedFile.name}</span>
+                    <button
+                      onClick={() => { setUploadedFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
+                      className="text-slate-400 hover:text-red-500 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isGenerating}
+                    className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-400 hover:border-indigo-400 hover:text-indigo-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <FileUp size={16} />
+                    Chọn file PDF hoặc DOCX
+                  </button>
+                )}
+              </div>
+
+              {/* Generate from file button */}
+              {uploadedFile && (
+                <button
+                  onClick={doGenerateFromFile}
+                  disabled={isGenerating}
+                  className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 shadow-lg hover:shadow-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGenerating ? (
+                    <><Loader2 size={18} className="animate-spin" />AI đang đọc tài liệu...</>
+                  ) : (
+                    <><FileUp size={18} />Tạo từ tài liệu</>  
+                  )}
+                </button>
+              )}
 
               {/* Generate button */}
               <button

@@ -16,6 +16,18 @@ const lessonPlanApi = {
   generatePreview: (data) =>
     api.post('/ai/lesson-plans/generate', { ...data, saveToDb: false }),
 
+  generateFromFile: (file, params = {}) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (params.gradeLevel)      formData.append('gradeLevel', params.gradeLevel)
+    if (params.durationMinutes) formData.append('durationMinutes', String(params.durationMinutes))
+    if (params.framework)       formData.append('framework', params.framework)
+    if (params.objectives)      formData.append('objectives', params.objectives)
+    return api.post('/ai/lesson-plans/generate-from-file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
   saveEdited: (data) =>
     api.post('/ai/lesson-plans/save', data),
 

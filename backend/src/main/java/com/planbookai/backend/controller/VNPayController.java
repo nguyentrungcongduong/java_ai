@@ -8,6 +8,8 @@ import com.planbookai.backend.repository.OrderRepository;
 import com.planbookai.backend.repository.SubscriptionPackageRepository;
 import com.planbookai.backend.service.SubscriptionService;
 import com.planbookai.backend.service.VNPayService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -22,21 +24,11 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * VNPayController – xử lý 3 endpoint chính của luồng thanh toán VNPay:
- *
- * 1. POST /api/v1/payment/vnpay/create-payment-url
- *    → Teacher gọi, nhận về paymentUrl để redirect trình duyệt
- *
- * 2. GET /api/v1/payment/vnpay/return
- *    → VNPay redirect người dùng về sau khi thanh toán
- *    → Verify chữ ký, cập nhật order, redirect sang FE result page
- *
- * 3. GET /api/v1/payment/vnpay/ipn
- *    → VNPay server-to-server notify (đây là callback tin cậy nhất)
- *    → Xác nhận order ACTIVE khi payment thành công
+ * VNPayController – xử lý 3 endpoint chính của luồng thanh toán VNPay.
  */
 @RestController
 @RequestMapping("/api/v1/payment/vnpay")
+@Tag(name = "VNPay Payment", description = "Tich hợp thanh toán VNPay. Teacher tạo URL thanh toán, VNPay callback qua Return URL và IPN server-to-server.")
 public class VNPayController {
 
     private final VNPayService vnPayService;
@@ -68,6 +60,10 @@ public class VNPayController {
      *  - Lưu vnpayTxnRef vào order
      *  - Trả về { paymentUrl } để FE redirect
      */
+    @Operation(
+        summary = "Tạo URL thanh toán VNPay",
+        description = "Chỉ TEACHER. Tạo order PENDING và trả về {paymentUrl, orderId}. FE redirect đến paymentUrl để người dùng thanh toán trên cổng VNPay."
+    )
     @PostMapping("/create-payment-url")
     @PreAuthorize("hasRole('TEACHER')")
     public ResponseEntity<Map<String, String>> createPaymentUrl(
@@ -111,6 +107,10 @@ public class VNPayController {
      * redirect FE sang trang kết quả. Logic kích hoạt subscription thực
      * hiện ở IPN bên dưới.
      */
+    @Operation(
+        summary = "VNPay Return URL (browser redirect)",
+        description = "VNPay redirect trình duyệt về đây sau khi thanh toán xong. Verify chữ ký và redirect sang /payment/result trên frontend kèm kết quả."
+    )
     @GetMapping("/return")
     public jakarta.servlet.http.HttpServletResponse handleReturn(
             @RequestParam Map<String, String> params,
@@ -173,6 +173,10 @@ public class VNPayController {
      * VNPay gọi endpoint này từ phía server để xác nhận giao dịch.
      * Phải trả về {"RspCode":"00","Message":"Confirm Success"} trong vòng 5s.
      */
+    @Operation(
+        summary = "VNPay IPN (Server-to-Server callback)",
+        description = "VNPay gọi endpoint này từ phía server sau khi thanh toán. Đầu nhất định, không phụ thuộc trình duyệt. Trả về {RspCode, Message} trong 5 giây."
+    )
     @GetMapping("/ipn")
     public ResponseEntity<Map<String, String>> handleIpn(
             @RequestParam Map<String, String> params) {

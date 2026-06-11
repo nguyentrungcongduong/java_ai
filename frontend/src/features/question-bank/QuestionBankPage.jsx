@@ -10,9 +10,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 
-const GRADES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const GRADES = ['10', '11', '12']
+
 
 function BankCard({ bank, deleting, onDelete, onEdit, onAI, onClick }) {
+  const isOwn = bank.isOwnBank !== false  // default true nếu không có field (admin/cũ)
+
   return (
     <div
       className="group relative flex cursor-pointer flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-all duration-200 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
@@ -30,21 +33,25 @@ function BankCard({ bank, deleting, onDelete, onEdit, onAI, onClick }) {
           >
             <Brain className="size-3.5" />
           </button>
-          <button
-            onClick={onEdit}
-            title="Chinh sua"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Pencil className="size-3.5" />
-          </button>
-          <button
-            onClick={onDelete}
-            disabled={deleting}
-            title="Xoa"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
+          {isOwn && (
+            <>
+              <button
+                onClick={onEdit}
+                title="Chinh sua"
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+              <button
+                onClick={onDelete}
+                disabled={deleting}
+                title="Xoa"
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -60,10 +67,18 @@ function BankCard({ bank, deleting, onDelete, onEdit, onAI, onClick }) {
               Cong khai
             </span>
           )}
+          {!isOwn && (
+            <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600">
+              Chia se
+            </span>
+          )}
         </div>
       </div>
 
       <div className="border-t border-border pt-3">
+        {!isOwn && bank.createdByName && (
+          <p className="mb-1 text-[10px] text-muted-foreground">👤 {bank.createdByName}</p>
+        )}
         <p className="line-clamp-1 text-xs text-muted-foreground">
           {bank.description || 'Nhan de xem danh sach cau hoi ->'}
         </p>
@@ -71,6 +86,7 @@ function BankCard({ bank, deleting, onDelete, onEdit, onAI, onClick }) {
     </div>
   )
 }
+
 
 function EmptyState({ hasFilter, onClear, onCreate }) {
   return (

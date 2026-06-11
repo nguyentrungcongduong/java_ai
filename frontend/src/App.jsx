@@ -25,6 +25,7 @@ import PromptTemplatesPage from './pages/staff/PromptTemplatesPage'
 import PromptTemplateForm from './pages/staff/PromptTemplateForm'
 import GenerateLessonPlan from './pages/teacher/GenerateLessonPlan'
 import ExamGenerator from './pages/teacher/ExamGenerator'
+import ExamListPage from './pages/teacher/ExamListPage'
 import LessonPlanGenerator from './pages/teacher/LessonPlanGenerator'
 import QuestionBankPage from './features/question-bank/QuestionBankPage'
 import BankQuestionsPage from './features/question-bank/BankQuestionsPage'
@@ -302,6 +303,14 @@ function App() {
             element={
               <RoleGuard roles={['TEACHER']}>
                 <TeacherOrderHistoryPage />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="/exams"
+            element={
+              <RoleGuard roles={['TEACHER']}>
+                <ExamListPage />
               </RoleGuard>
             }
           />

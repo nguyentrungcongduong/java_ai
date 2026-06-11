@@ -4,6 +4,8 @@ import com.planbookai.backend.dto.PackageDTO;
 import com.planbookai.backend.dto.PackageRequest;
 import com.planbookai.backend.model.entity.User;
 import com.planbookai.backend.service.SubscriptionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -13,6 +15,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/packages")
+@Tag(name = "Subscription Packages", description = "Quản lý các gói subscription. Ai cũng có thể xem, MANAGER/ADMIN mới có thể tạo/sửa/xóa.")
 public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
@@ -21,17 +24,13 @@ public class SubscriptionController {
         this.subscriptionService = subscriptionService;
     }
 
-    /*
-     * [ALL] Lấy danh sách các gói có sẵn
-     */
+    @Operation(summary = "Lấy tất cả gói subscription", description = "Public endpoint. Trả về danh sách các gói đang hoạt động để Teacher lựa chọn mua.")
     @GetMapping
     public ResponseEntity<List<PackageDTO>> getAllPackages() {
         return ResponseEntity.ok(subscriptionService.getAllPackages());
     }
 
-    /*
-     * [MANAGER, ADMIN] Tạo gói mới
-     */
+    @Operation(summary = "Tạo gói subscription mới", description = "Chỉ MANAGER và ADMIN. Định nghĩa tên, giá, thời hạn (days) và giới hạn tính năng của gói.")
     @PostMapping
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<PackageDTO> createPackage(
@@ -40,9 +39,7 @@ public class SubscriptionController {
         return ResponseEntity.ok(subscriptionService.createPackage(request, user));
     }
 
-    /*
-     * [MANAGER, ADMIN] Cập nhật gói
-     */
+    @Operation(summary = "Cập nhật gói subscription", description = "Chỉ MANAGER và ADMIN.")
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<PackageDTO> updatePackage(
@@ -51,9 +48,7 @@ public class SubscriptionController {
         return ResponseEntity.ok(subscriptionService.updatePackage(id, request));
     }
 
-    /*
-     * [MANAGER, ADMIN] Xoá gói (Hủy bỏ/xóa cứng)
-     */
+    @Operation(summary = "Xóa gói subscription", description = "Chỉ MANAGER và ADMIN. Xóa cứng (hard delete).")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<Void> deletePackage(@PathVariable Integer id) {
@@ -61,9 +56,7 @@ public class SubscriptionController {
         return ResponseEntity.noContent().build();
     }
 
-    /*
-     * [MANAGER, ADMIN] Deactivate / Vô hiệu hóa gói (ẩn khỏi người dùng mua)
-     */
+    @Operation(summary = "Vô hiệu hóa gói subscription", description = "Chỉ MANAGER và ADMIN. Ẩn gói khỏi danh sách công khai nhưng không xóa. Teacher đang dùng gói này vẫn không bị ảnh hưởng.")
     @PutMapping("/{id}/deactivate")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<PackageDTO> deactivatePackage(@PathVariable Integer id) {

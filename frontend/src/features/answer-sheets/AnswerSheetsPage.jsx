@@ -74,11 +74,19 @@ function OcrStatusBadge({ status, spinning = false }) {
       </span>
     )
   }
-  if (status === 'DONE') {
+  if (status === 'COMPLETED' || status === 'DONE') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
         <CheckCircle2 className="size-3" />
-        DONE
+        HOÀN THÀNH
+      </span>
+    )
+  }
+  if (status === 'FAILED') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700">
+        <AlertTriangle className="size-3" />
+        THẤT BẠI
       </span>
     )
   }
@@ -506,8 +514,6 @@ export default function AnswerSheetsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12 pl-5">#</TableHead>
-                  <TableHead>Bài / Học sinh</TableHead>
-                  <TableHead>Mã HS</TableHead>
                   <TableHead>Trạng thái OCR</TableHead>
                   <TableHead>Thời gian tải</TableHead>
                   <TableHead className="pr-5 text-right">Thao tác</TableHead>
@@ -523,30 +529,11 @@ export default function AnswerSheetsPage() {
                         {currentPage * PAGE_SIZE + index + 1}
                       </TableCell>
 
-                      {/* Student name */}
-                      <TableCell>
-                        {sheet.studentName ? (
-                          <span className="text-sm font-medium text-foreground">
-                            {sheet.studentName}
-                          </span>
-                        ) : (
-                          <span className="text-xs italic text-muted-foreground">
-                            Chưa nhận dạng
-                          </span>
-                        )}
-                      </TableCell>
-
-                      {/* Student code */}
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground">
-                          {sheet.studentCode || '—'}
-                        </span>
-                      </TableCell>
-
                       {/* OCR Status */}
                       <TableCell>
                         <OcrStatusBadge status={sheet.ocrStatus} spinning={isProcessing} />
                       </TableCell>
+
 
                       {/* Uploaded at */}
                       <TableCell className="text-xs text-muted-foreground">
@@ -568,7 +555,7 @@ export default function AnswerSheetsPage() {
                           </Button>
 
                           {/* Start Grading – only for PENDING sheets */}
-                          {sheet.ocrStatus === 'PENDING' && (
+                          {(sheet.ocrStatus === 'PENDING' || sheet.ocrStatus === 'FAILED') && (
                             <Button
                               size="sm"
                               onClick={() => handleStartGrading(sheet.id)}
@@ -580,7 +567,7 @@ export default function AnswerSheetsPage() {
                               ) : (
                                 <Play className="size-3.5" />
                               )}
-                              <span className="hidden sm:inline">Bắt đầu chấm</span>
+                              <span>Bắt đầu chấm</span>
                             </Button>
                           )}
                         </div>

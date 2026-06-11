@@ -1,6 +1,7 @@
 package com.planbookai.backend.config;
 
 import com.google.genai.Client;
+import com.google.genai.types.HttpOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,8 +14,6 @@ import org.springframework.context.annotation.Configuration;
  * <p>Đọc API key từ property {@code gemini.api-key} (inject từ biến môi trường GEMINI_API_KEY).
  * Tạo một bean {@link Client} singleton dùng chung cho toàn bộ ứng dụng.
  *
- * <p>Cách dùng: inject {@code Client geminiClient} vào service cần gọi AI.
- *
  * <p>Nếu {@code apiKey} trống, bean vẫn được tạo nhưng sẽ ném lỗi khi gọi API.
  * Hãy set biến môi trường {@code GEMINI_API_KEY} trước khi chạy.
  */
@@ -26,21 +25,13 @@ public class GeminiAIConfig {
     @Value("${gemini.api-key:}")
     private String apiKey;
 
-    /**
-     * Tạo Gemini AI Client.
-     *
-     * <p>Client được cấu hình với API key từ application.yml.
-     * Nếu apiKey trống, in cảnh báo để dev biết cần cấu hình.
-     *
-     * @return Google GenAI Client instance
-     */
     @Bean
     public Client geminiClient() {
         // Loại bỏ placeholder "dummy" hoặc chuỗi mẫu ban đầu để tránh lỗi 400
-        String effectiveKey = (apiKey != null && 
-                               !apiKey.isBlank() && 
-                               !apiKey.equalsIgnoreCase("dummy") && 
-                               !apiKey.startsWith("AIzaSyA...")) 
+        String effectiveKey = (apiKey != null &&
+                               !apiKey.isBlank() &&
+                               !apiKey.equalsIgnoreCase("dummy") &&
+                               !apiKey.startsWith("AIzaSyA..."))
                                ? apiKey : null;
         String source = "application.yml";
 
@@ -49,7 +40,7 @@ public class GeminiAIConfig {
             effectiveKey = System.getenv("GEMINI_API_KEY");
             source = "System Environment (GEMINI_API_KEY)";
         }
-        
+
         if (effectiveKey == null) {
             effectiveKey = System.getenv("GOOGLE_API_KEY");
             source = "System Environment (GOOGLE_API_KEY)";
@@ -65,8 +56,10 @@ public class GeminiAIConfig {
 
         log.info("[GeminiAI] Client initialized successfully using source: {}", source);
 
+        // Dùng v1 (stable) thay vì v1beta để tương thích với free tier accounts
         return new Client.Builder()
                 .apiKey(effectiveKey)
+                .httpOptions(HttpOptions.builder().apiVersion("v1").build())
                 .build();
     }
 }

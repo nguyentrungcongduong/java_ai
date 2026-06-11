@@ -8,9 +8,8 @@ import com.planbookai.backend.model.entity.Order;
 import com.planbookai.backend.model.entity.SubscriptionPackage;
 import com.planbookai.backend.model.entity.User;
 import com.planbookai.backend.repository.OrderRepository;
-import com.planbookai.backend.model.entity.Role;
-import com.planbookai.backend.repository.RoleRepository;
 import com.planbookai.backend.repository.SubscriptionPackageRepository;
+import com.planbookai.backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -22,12 +21,14 @@ public class SubscriptionService {
 
     private final SubscriptionPackageRepository packageRepository;
     private final OrderRepository orderRepository;
-    private final RoleRepository roleRepository;
+    private final UserRepository userRepository;
 
-    public SubscriptionService(SubscriptionPackageRepository packageRepository, OrderRepository orderRepository, RoleRepository roleRepository) {
+    public SubscriptionService(SubscriptionPackageRepository packageRepository,
+                               OrderRepository orderRepository,
+                               UserRepository userRepository) {
         this.packageRepository = packageRepository;
         this.orderRepository = orderRepository;
-        this.roleRepository = roleRepository;
+        this.userRepository = userRepository;
     }
 
     // ===================================
@@ -96,7 +97,7 @@ public class SubscriptionService {
     // ===================================
 
     public List<OrderDTO> getAllOrders() {
-        return orderRepository.findAll().stream().map(this::mapToOrderDTO).collect(Collectors.toList());
+        return orderRepository.findAllOrdersSorted().stream().map(this::mapToOrderDTO).collect(Collectors.toList());
     }
 
     public List<OrderDTO> getMyOrders(User user) {
@@ -134,23 +135,16 @@ public class SubscriptionService {
         Order.OrderStatus newStatus = Order.OrderStatus.valueOf(status.toUpperCase());
         order.setStatus(newStatus);
 
-        // If active, set started and expired dates
+        // Khi chuyển sang ACTIVE: set ngày bắt đầu/hết hạn và kích hoạt tài khoản
         if (newStatus == Order.OrderStatus.ACTIVE && order.getStartedAt() == null) {
             LocalDateTime now = LocalDateTime.now();
             order.setStartedAt(now);
             order.setExpiresAt(now.plusDays(order.getSubscriptionPackage().getDurationDays()));
 
-            // Activate user status upon successful subscription
+            // Kích hoạt tài khoản người dùng
             User user = order.getUser();
             user.setIsActive(true);
-            
-            // Example Role Transition for Premium packages
-            if ("PREMIUM".equalsIgnoreCase(order.getSubscriptionPackage().getName())) {
-                roleRepository.findByName(Role.RoleName.MANAGER).ifPresent(role -> {
-                    user.setRole(role);
-                    // Thêm log để theo dõi việc nâng cấp tài khoản
-                });
-            }
+            userRepository.save(user); // ← lưu thay đổi vào DB
         }
 
         return mapToOrderDTO(orderRepository.save(order));

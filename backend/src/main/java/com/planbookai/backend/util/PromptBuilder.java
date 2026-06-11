@@ -329,4 +329,82 @@ public class PromptBuilder {
             case HARD   -> "analysis and synthesis, complex multi-step reasoning";
         };
     }
+
+    // =========================================================================
+    // Lesson Plan from File Prompt
+    // =========================================================================
+
+    /**
+     * Tạo prompt để Gemini đọc nội dung file (PDF/DOCX) và sinh giáo án.
+     *
+     * @param grade      Khối lớp (VD: Lớp 10)
+     * @param duration   Thời lượng (phút)
+     * @param framework  Framework giảng dạy
+     * @param objectives Mục tiêu bổ sung (tuỳ chọn)
+     * @return Chuỗi prompt hoàn chỉnh kèm hướng dẫn đọc file
+     */
+    public String buildLessonPlanFromFilePrompt(
+            String grade,
+            int duration,
+            LessonFramework framework,
+            String objectives) {
+
+        String objectivesBlock = buildObjectivesBlock(objectives, "nội dung trong tài liệu");
+
+        return """
+                You are an expert Vietnamese instructional designer. The attached document is a teaching curriculum, textbook chapter, or lesson reference material.
+
+                Your task:
+                1. READ and UNDERSTAND the content of the attached document.
+                2. EXTRACT the main topic, subject, and key concepts from the document.
+                3. GENERATE a complete, high-quality lesson plan based on that content.
+
+                === LESSON PLAN CONFIGURATION ===
+                - Grade Level: %s
+                - Duration (minutes): %d
+                - Framework: %s
+                %s
+
+                CRITICAL RULES:
+                1. Return ONLY a valid JSON object. No markdown, no code fences, no explanation.
+                2. All text must be in Vietnamese (including all field values).
+                3. The lesson plan must reflect the actual content of the attached document.
+                4. The total of all time_minutes in lesson_flow MUST equal exactly %d minutes.
+                5. Infer subject and topic from the document content.
+
+                OUTPUT FORMAT (STRICT JSON):
+                {
+                  "title": "<concise lesson title in Vietnamese>",
+                  "grade_level": "%s",
+                  "subject": "<subject inferred from document>",
+                  "topic": "<main topic inferred from document>",
+                  "duration_minutes": %d,
+                  "objectives": ["<objective 1>", "<objective 2>"],
+                  "materials": ["<material 1>", "<material 2>"],
+                  "lesson_flow": [
+                    {
+                      "phase": "<phase name in Vietnamese>",
+                      "time_minutes": <number>,
+                      "activities": "<detailed description>",
+                      "teacher_actions": "<what the teacher does>",
+                      "student_actions": "<what the students do>"
+                    }
+                  ],
+                  "assessment": {
+                    "methods": ["<method 1>", "<method 2>"],
+                    "criteria": "<how learning outcomes are measured>"
+                  },
+                  "homework": "<homework description in Vietnamese>",
+                  "notes": "<optional pedagogical notes for the teacher>"
+                }
+
+                Generate the JSON now:
+                """.formatted(
+                grade, duration,
+                framework.label(),
+                objectivesBlock,
+                duration,
+                grade, duration
+        );
+    }
 }

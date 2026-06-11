@@ -216,6 +216,33 @@ public class LessonPlanService {
     }
 
     @Transactional
+    public LessonPlanDTO generateLessonPlanFromFile(
+            byte[] fileBytes,
+            String mimeType,
+            String gradeLevel,
+            int durationMinutes,
+            String frameworkCode,
+            String objectives) {
+
+        ensureAiGenerationAvailable();
+
+        PromptBuilder.LessonFramework framework = parseAiFramework(frameworkCode);
+        LessonPlanDTO generated = geminiAIService.generateLessonPlanFromFileContent(
+                fileBytes,
+                mimeType,
+                normalizeRequiredText(gradeLevel, "gradeLevel"),
+                durationMinutes,
+                framework,
+                normalizeOptionalText(objectives));
+
+        generated.setFramework(framework.name());
+        generated.setAiGenerated(true);
+        generated.setStatus(LessonPlan.LessonPlanStatus.DRAFT);
+        enrichPlainTextFieldsFromStructuredContent(generated);
+        return generated;
+    }
+
+    @Transactional
     public LessonPlanDTO saveEditedLessonPlan(SaveLessonPlanRequest request) {
         ensureCurrentUserSupportAvailable();
         User teacher = getCurrentTeacher();

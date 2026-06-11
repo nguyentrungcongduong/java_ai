@@ -4,9 +4,9 @@ import { apiClient } from '../auth/authApi';
 const API_PATH = '/prompt-templates';
 
 // Thunks
-export const fetchTemplates = createAsyncThunk('prompts/fetchAll', async (_, { rejectWithValue }) => {
+export const fetchTemplates = createAsyncThunk('prompts/fetchAll', async (params, { rejectWithValue }) => {
   try {
-    const response = await apiClient.get(API_PATH);
+    const response = await apiClient.get(API_PATH, { params });
     return response.data;
   } catch (error) {
     return rejectWithValue(error.response?.data?.message || 'Không thể tải danh sách template');
@@ -31,9 +31,9 @@ export const updateTemplate = createAsyncThunk('prompts/update', async ({ id, da
   }
 });
 
-export const approveTemplate = createAsyncThunk('prompts/approve', async (id, { rejectWithValue }) => {
+export const approveTemplate = createAsyncThunk('prompts/approve', async ({ id, status }, { rejectWithValue }) => {
   try {
-    const response = await apiClient.put(`${API_PATH}/${id}/approve`);
+    const response = await apiClient.put(`${API_PATH}/${id}/approve`, { status });
     return response.data;
   } catch (error) {
     return rejectWithValue(error.response?.data?.message || 'Duyệt template thất bại');

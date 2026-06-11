@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Brain, Sparkles, Send, Check, Edit3, Trash2, X, PlusCircle, Book, Layout, Loader2 } from 'lucide-react';
+import { ArrowLeft, Brain, Sparkles, Send, Check, Edit3, Trash2, X, PlusCircle, Book, Layout, Loader2, FileText } from 'lucide-react';
 import questionApi from '../../services/questionApi';
+import promptTemplateApi from '../../services/promptTemplateApi';
 import { toast } from 'sonner';
 import ApprovalStatusBadge from '../../components/ui/ApprovalStatusBadge';
 
@@ -22,11 +23,22 @@ const AIQuestionGenerator = ({ banks, initialBankId, onClose }) => {
     count: 5
   });
 
+  // --- Template state ---
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+
   // --- States cho Preview ---
   const [previewQuestions, setPreviewQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // Fetch approved QUESTION_GEN templates
+  useEffect(() => {
+    promptTemplateApi.getApproved('QUESTION_GEN')
+      .then(res => setTemplates(res.data || []))
+      .catch(() => {}); // silent fail — template là tuỳ chọn
+  }, []);
 
   // --- Handlers ---
   const handleGenerate = async (e) => {
@@ -37,9 +49,44 @@ const AIQuestionGenerator = ({ banks, initialBankId, onClose }) => {
     try {
       setLoading(true);
       setPreviewQuestions([]);
-      const res = await questionApi.aiGeneratePreview(params);
-      setPreviewQuestions(res.data);
-      toast.success(`Đã sinh thành công ${res.data.length} câu hỏi! Review ngay.`);
+
+      if (selectedTemplateId) {
+        // ── Dùng Prompt Template đã duyệt ──
+        const inputs = {
+          subject: params.subject,
+          topic: params.topic,
+          difficulty: params.difficulty,
+          count: String(params.count),
+          grade: params.grade || '',
+        };
+        const res = await promptTemplateApi.generate(Number(selectedTemplateId), inputs);
+        // Backend trả về string JSON → parse thành mảng câu hỏi
+        const raw = res.data?.content || '';
+        try {
+          const jsonMatch = raw.match(/\[[\s\S]*\]/);
+          const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+          const mapped = parsed.map(q => ({
+            content: q.content || q.question || '',
+            type: 'MULTIPLE_CHOICE',
+            difficulty: params.difficulty,
+            options: q.options
+              ? Object.entries(q.options).map(([label, text], i) => ({
+                  label, text, isCorrect: label === (q.correctAnswer || q.answer)
+                }))
+              : [],
+            explanation: q.explanation || '',
+          }));
+          setPreviewQuestions(mapped);
+          toast.success(`Đã sinh ${mapped.length} câu từ template!`);
+        } catch {
+          toast.error('AI trả về định dạng không hợp lệ. Thử lại hoặc dùng chế độ mặc định.');
+        }
+      } else {
+        // ── Dùng prompt mặc định (cũ) ──
+        const res = await questionApi.aiGeneratePreview(params);
+        setPreviewQuestions(res.data);
+        toast.success(`Đã sinh thành công ${res.data.length} câu hỏi! Review ngay.`);
+      }
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.message || "Lỗi khi sinh câu hỏi. Vui lòng thử lại.");
@@ -47,6 +94,7 @@ const AIQuestionGenerator = ({ banks, initialBankId, onClose }) => {
       setLoading(false);
     }
   };
+
 
   const handleUpdatePreview = (index, updatedQuestion) => {
     const newQuestions = [...previewQuestions];
@@ -89,6 +137,31 @@ const AIQuestionGenerator = ({ banks, initialBankId, onClose }) => {
       </div>
 
       <form onSubmit={handleGenerate} className="bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-2xl shadow-slate-200/50 space-y-6">
+
+        {/* Template selector */}
+        {templates.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+              <FileText size={16} /> Prompt Template <span className="text-xs font-normal text-slate-400">(Tuỳ chọn — để trống dùng prompt mặc định)</span>
+            </label>
+            <select
+              className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-indigo-800"
+              value={selectedTemplateId}
+              onChange={(e) => setSelectedTemplateId(e.target.value)}
+            >
+              <option value="">-- Dùng prompt mặc định --</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </select>
+            {selectedTemplateId && (
+              <p className="text-xs text-indigo-600 font-medium">
+                ✅ Sẽ dùng prompt template đã được Manager duyệt thay cho prompt mặc định.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className="text-sm font-bold text-slate-700 flex items-center gap-2">

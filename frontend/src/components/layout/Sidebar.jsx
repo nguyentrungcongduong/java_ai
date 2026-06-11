@@ -14,6 +14,7 @@ import {
   Shield,
   ClipboardCheck,
   BookMarked,
+  ClipboardList,
 } from 'lucide-react';
 
 const ALL_NAV_ITEMS = [
@@ -46,6 +47,12 @@ const ALL_NAV_ITEMS = [
     icon: BookCopy,
     path: '/question-bank',
     roles: ['TEACHER', 'STAFF'],
+  },
+  {
+    name: 'Đề thi của tôi',
+    icon: ClipboardList,
+    path: '/exams',
+    roles: ['TEACHER'],
   },
   {
     name: 'Exam Generator',

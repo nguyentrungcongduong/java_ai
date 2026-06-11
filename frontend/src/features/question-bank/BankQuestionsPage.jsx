@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, PlusCircle } from 'lucide-react'
+import { ArrowLeft, Loader2, PlusCircle, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import questionApi from '@/services/questionApi'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,10 @@ const DIFF_OPTIONS = [
 const selectCls =
   'h-8 rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus:border-ring'
 
+const DIFF_LABELS = { EASY: 'D\u1ec5', MEDIUM: 'Trung b\u00ecnh', HARD: 'Kh\u00f3' }
+const TYPE_LABELS = { MULTIPLE_CHOICE: 'Tr\u1eafc nghi\u1ec7m', SHORT_ANSWER: 'Tr\u1ea3 l\u1eddi ng\u1eafn', FILL_IN_BLANK: '\u0110i\u1ec1n khuy\u1ebft' }
+const OPT_LABELS = ['A', 'B', 'C', 'D', 'E']
+
 export default function BankQuestionsPage() {
   const { bankId } = useParams()
   const navigate = useNavigate()
@@ -40,6 +44,7 @@ export default function BankQuestionsPage() {
   const [questionsLoading, setQuestionsLoading] = useState(false)
   const [filter, setFilter] = useState({ topic: '', type: '', difficulty: '' })
   const [formModal, setFormModal] = useState({ open: false, question: null })
+  const [printing, setPrinting] = useState(false)
 
   useEffect(() => {
     setBankLoading(true)
@@ -90,6 +95,107 @@ export default function BankQuestionsPage() {
     }
   }
 
+  // ── In / Xuất PDF ─────────────────────────────────────────────────────────
+  const handlePrint = async () => {
+    setPrinting(true)
+    try {
+      // Backend giới hạn size <= 100, nên fetch từng trang rồi gộp lại
+      const baseParams = { size: 100 }
+      if (filter.topic) baseParams.topic = filter.topic
+      if (filter.type) baseParams.type = filter.type
+      if (filter.difficulty) baseParams.difficulty = filter.difficulty
+
+      // Fetch trang đầu để biết tổng số trang
+      const firstRes = await questionApi.getBankQuestions(bankId, { ...baseParams, page: 0 })
+      const firstData = firstRes.data
+      const allQuestions = [...(firstData.content ?? [])]
+      const totalPagesCount = firstData.totalPages ?? 1
+
+      // Fetch các trang còn lại song song
+      if (totalPagesCount > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPagesCount - 1 }, (_, i) =>
+            questionApi.getBankQuestions(bankId, { ...baseParams, page: i + 1 })
+              .then(r => r.data?.content ?? [])
+          )
+        )
+        rest.forEach(page => allQuestions.push(...page))
+      }
+
+      if (allQuestions.length === 0) {
+        toast.error('Không có câu hỏi nào để in')
+        return
+      }
+
+      const questionsHtml = allQuestions.map((q, idx) => {
+        const opts = q.options || []
+        const optsHtml = opts.length > 0
+          ? `<div class="opts">${opts.map((o, i) => {
+              const label = o.label || OPT_LABELS[i] || String(i + 1)
+              return `<div class="opt"><span class="opt-label">${label}.</span> ${o.text || o}</div>`
+            }).join('')}</div>`
+          : q.correctAnswer
+            ? `<div class="opt"><b>Đáp án:</b> ${q.correctAnswer}</div>`
+            : ''
+
+        return `
+          <div class="question">
+            <p class="q-content"><b>Câu ${idx + 1}.</b> ${q.content}</p>
+            ${optsHtml}
+          </div>`
+      }).join('')
+
+      const bankMeta = [
+        bank?.subject && `Môn: ${bank.subject}`,
+        bank?.gradeLevel && `Lớp: ${bank.gradeLevel}`,
+        `${allQuestions.length} câu hỏi`,
+      ].filter(Boolean).join('  |  ')
+
+      const html = `<!DOCTYPE html><html lang="vi"><head>
+        <meta charset="UTF-8"/>
+        <title>${bank?.name || 'Ngân hàng câu hỏi'}</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: 'Times New Roman', serif; font-size: 13pt; line-height: 1.65;
+                 padding: 18mm 18mm 18mm 22mm; color: #111; }
+          .header { text-align: center; margin-bottom: 18px; }
+          .bank-name { font-size: 17pt; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
+          .bank-meta { font-size: 11pt; color: #555; }
+          .divider { border: none; border-top: 2px solid #000; margin: 14px 0; }
+          .question { margin-bottom: 20px; page-break-inside: avoid; }
+          .q-content { font-size: 13pt; margin-bottom: 6px; }
+          .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 28px;
+                  padding-left: 16px; margin-top: 4px; }
+          .opt { font-size: 12pt; }
+          .opt-label { font-weight: bold; }
+          .footer { margin-top: 24px; border-top: 1px dashed #aaa; padding-top: 10px;
+                    text-align: center; font-size: 10pt; color: #777; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head><body>
+        <div class="header">
+          <div class="bank-name">${bank?.name || 'Ngân hàng câu hỏi'}</div>
+          <div class="bank-meta">${bankMeta}</div>
+        </div>
+        <hr class="divider"/>
+        ${questionsHtml}
+        <div class="footer">
+          PlanbookAI &nbsp;·&nbsp; In lúc ${new Date().toLocaleString('vi-VN')}
+        </div>
+      </body></html>`
+
+      const win = window.open('', '_blank', 'width=950,height=750')
+      win.document.write(html)
+      win.document.close()
+      win.focus()
+      setTimeout(() => win.print(), 500)
+    } catch {
+      toast.error('Không thể tải dữ liệu để in')
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   const hasFilter = Boolean(filter.topic || filter.type || filter.difficulty)
   const bankMeta = [
     bank?.subject && `Mon: ${bank.subject}`,
@@ -124,9 +230,23 @@ export default function BankQuestionsPage() {
           </div>
         </div>
 
-        <Button onClick={() => setFormModal({ open: true, question: null })}>
-          <PlusCircle className="size-4" /> Them cau hoi
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handlePrint}
+            disabled={printing || totalElements === 0}
+            className="flex items-center gap-1.5"
+          >
+            {printing
+              ? <Loader2 className="size-4 animate-spin" />
+              : <Printer className="size-4" />}
+            {printing ? 'Đang tải...' : 'In / Xuất PDF'}
+          </Button>
+
+          <Button onClick={() => setFormModal({ open: true, question: null })}>
+            <PlusCircle className="size-4" /> Them cau hoi
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3">

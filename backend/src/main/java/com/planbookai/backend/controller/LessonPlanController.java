@@ -29,6 +29,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
+
 import java.util.List;
 
 @RestController
@@ -160,6 +163,29 @@ public class LessonPlanController {
     @Operation(summary = "Generate lesson plan with AI")
     public ResponseEntity<LessonPlanDTO> generate(@Valid @RequestBody LessonPlanGenerateRequest request) {
         return ResponseEntity.ok(lessonPlanService.generateLessonPlan(request));
+    }
+
+    @PostMapping(value = "/ai/lesson-plans/generate-from-file", consumes = "multipart/form-data")
+    @PreAuthorize("hasAnyRole('TEACHER','STAFF')")
+    @Operation(summary = "Generate lesson plan from uploaded PDF or DOCX file")
+    public ResponseEntity<LessonPlanDTO> generateFromFile(
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(defaultValue = "Lớp 10") String gradeLevel,
+            @RequestParam(defaultValue = "45") int durationMinutes,
+            @RequestParam(defaultValue = "E5") String framework,
+            @RequestParam(required = false) String objectives) throws java.io.IOException {
+
+        String mimeType = file.getContentType();
+        if (mimeType == null ||
+            (!mimeType.equals("application/pdf") &&
+             !mimeType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document") &&
+             !mimeType.equals("application/msword"))) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        LessonPlanDTO result = lessonPlanService.generateLessonPlanFromFile(
+                file.getBytes(), mimeType, gradeLevel, durationMinutes, framework, objectives);
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/ai/lesson-plans/save")

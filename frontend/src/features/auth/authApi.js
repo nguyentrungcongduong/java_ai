@@ -37,32 +37,39 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // If the error is 401 and we haven't retried yet
+    // Bỏ qua nếu chính request refresh bị lỗi (tránh vòng lặp)
+    if (originalRequest?.url?.includes('/auth/refresh')) {
+      localStorage.clear();
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    // Xử lý 401 (Unauthorized) - token hết hạn
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {
-        // Lấy refreshToken từ localStorage
         const refreshToken = localStorage.getItem('refreshToken');
         if (!refreshToken) {
-          // Chuyển hướng hoặc xử lý logout thủ công nếu không có store dispatch
+          localStorage.clear();
+          window.location.href = '/login';
           return Promise.reject(error);
         }
 
-        // Call the refresh token endpoint
+        // Gọi endpoint refresh token
         const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
 
-        // Cập nhật localStorage (Redux state sẽ được đồng bộ ở lần request tiếp theo hoặc reload)
+        // Cập nhật token mới vào localStorage
         localStorage.setItem('token', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
+        if (data.refreshToken) {
+          localStorage.setItem('refreshToken', data.refreshToken);
+        }
 
-        // Update the header of the original request
+        // Gửi lại request gốc với token mới
         originalRequest.headers['Authorization'] = `Bearer ${data.accessToken}`;
-
-        // Retry the original request
         return apiClient(originalRequest);
       } catch (refreshError) {
-        // Nếu refresh thất bại, xóa sạch và đá về login
+        // Refresh thất bại → logout
         localStorage.clear();
         window.location.href = '/login';
         return Promise.reject(refreshError);

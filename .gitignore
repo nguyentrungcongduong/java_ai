@@ -42,9 +42,20 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+
+# Environment & Secrets (NEVER commit these)
 .env
 .env.*
 !.env.example
+frontend/.env.local
+frontend/.env.*.local
+
+# Additional secrets safety net
+*.pem
+*.key
+secrets/
+application-secret.yml
+application-prod.yml
 
 # IDE
 .idea/

@@ -1,6 +1,6 @@
 import axiosInstance from './api'
 
-const BASE = '/api/v1/admin/system-config'
+const BASE = '/admin/system-config'
 
 export const systemConfigApi = {
   getAll: () => axiosInstance.get(BASE),

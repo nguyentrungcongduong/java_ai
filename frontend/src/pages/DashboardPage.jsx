@@ -7,6 +7,7 @@ import {
   CheckCircle2, Crown, Star, Shield
 } from "lucide-react";
 import { subscriptionsApi } from "../features/subscriptions/subscriptionsApi";
+import api from "../services/api";
 
 const DashboardPage = () => {
   const { user } = useSelector((state) => state.auth);
@@ -14,6 +15,19 @@ const DashboardPage = () => {
 
   const [activeOrder, setActiveOrder] = useState(null);
   const [loadingPlan, setLoadingPlan] = useState(true);
+
+  // Real stats state
+  const [statsData, setStatsData] = useState({
+    lessonPlanCount: null,
+    studentGroupCount: null,
+    aiQuestionsCount: null,
+    performanceScore: null,
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  // Recent activity
+  const [recentPlans, setRecentPlans] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
 
   useEffect(() => {
     subscriptionsApi.getMyOrders()
@@ -24,6 +38,58 @@ const DashboardPage = () => {
       })
       .catch(() => setActiveOrder(null))
       .finally(() => setLoadingPlan(false));
+  }, []);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [lessonRes, analyticsRes] = await Promise.allSettled([
+          api.get("/lesson-plans", { params: { page: 0, size: 1 } }),
+          api.get("/analytics/students"),
+        ]);
+
+        const lessonCount =
+          lessonRes.status === "fulfilled"
+            ? lessonRes.value.data?.totalElements ?? null
+            : null;
+
+        const summary =
+          analyticsRes.status === "fulfilled"
+            ? analyticsRes.value.data?.summary
+            : null;
+
+        // Điểm hiệu suất = % đề đã publish / tổng đề (thang 100)
+        const perfScore =
+          summary && summary.totalExams > 0
+            ? Math.round((summary.publishedExams / summary.totalExams) * 100)
+            : null;
+
+        // Thời gian AI hỗ trợ ≈ số câu AI tạo / 10 (quy ước: mỗi 10 câu ~ 1h)
+        const aiHours =
+          summary && summary.totalAiQuestions > 0
+            ? Math.round(summary.totalAiQuestions / 10)
+            : null;
+
+        setStatsData({
+          lessonPlanCount: lessonCount,
+          studentGroupCount: summary?.studentGroupCount ?? null,
+          aiQuestionsCount: aiHours,
+          performanceScore: perfScore,
+        });
+      } catch (err) {
+        console.error("[Dashboard] fetchStats error:", err);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    api.get("/lesson-plans", { params: { page: 0, size: 5 } })
+      .then(res => setRecentPlans(res.data?.content ?? []))
+      .catch(() => setRecentPlans([]))
+      .finally(() => setLoadingRecent(false));
   }, []);
 
   const pkgName = (activeOrder?.packageName || "FREE").toUpperCase();
@@ -47,12 +113,50 @@ const DashboardPage = () => {
     return new Date(dateStr).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
   };
 
+  const fmtVal = (val, suffix = "") =>
+    val === null ? "..." : `${val}${suffix}`;
+
   const stats = [
-    { label: "Giao an da tao",      value: "12",  icon: BookOpen,   color: "text-blue-600",   bg: "bg-blue-50" },
-    { label: "Hoc sinh quan ly",    value: "128", icon: Users,      color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Thoi gian AI ho tro", value: "45h", icon: Clock,      color: "text-emerald-600",bg: "bg-emerald-50" },
-    { label: "Diem hieu suat",      value: "98%", icon: TrendingUp, color: "text-amber-600",   bg: "bg-amber-50" },
+    {
+      label: "Giao an da tao",
+      value: fmtVal(statsData.lessonPlanCount),
+      icon: BookOpen,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+    },
+    {
+      label: "Hoc sinh quan ly",
+      value: fmtVal(statsData.studentGroupCount, " nhom"),
+      icon: Users,
+      color: "text-purple-600",
+      bg: "bg-purple-50",
+    },
+    {
+      label: "Thoi gian AI ho tro",
+      value: fmtVal(statsData.aiQuestionsCount, "h"),
+      icon: Clock,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
+    },
+    {
+      label: "Diem hieu suat",
+      value: fmtVal(statsData.performanceScore, "%"),
+      icon: TrendingUp,
+      color: "text-amber-600",
+      bg: "bg-amber-50",
+    },
   ];
+
+  const timeAgo = (dateStr) => {
+    if (!dateStr) return "";
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return `${mins} phut truoc`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} gio truoc`;
+    const days = Math.floor(hours / 24);
+    return `${days} ngay truoc`;
+  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -105,12 +209,13 @@ const DashboardPage = () => {
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${item.bg} ${item.color} transition-transform duration-500 group-hover:scale-110`}>
                 <item.icon className="w-6 h-6" />
               </div>
-              <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                +12% <ArrowUpRight className="w-3 h-3" />
-              </span>
             </div>
             <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">{item.label}</p>
-            <h3 className="text-3xl font-black text-slate-900 mt-1">{item.value}</h3>
+            {loadingStats ? (
+              <div className="h-9 w-20 bg-slate-100 rounded-xl animate-pulse mt-1" />
+            ) : (
+              <h3 className="text-3xl font-black text-slate-900 mt-1">{item.value}</h3>
+            )}
           </div>
         ))}
       </div>
@@ -124,20 +229,52 @@ const DashboardPage = () => {
               </h3>
               <button className="text-sm font-bold text-blue-600 hover:underline">Xem tat ca</button>
             </div>
-            <div className="space-y-6">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="flex gap-4 group cursor-pointer p-4 hover:bg-slate-50 rounded-2xl transition-all">
-                  <div className="w-12 h-12 bg-slate-100 rounded-xl flex-shrink-0 flex items-center justify-center font-bold text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
-                    0{i}
+            <div className="space-y-2">
+              {loadingRecent ? (
+                [1, 2, 3].map(i => (
+                  <div key={i} className="flex gap-4 p-4">
+                    <div className="w-12 h-12 bg-slate-100 rounded-xl animate-pulse flex-shrink-0" />
+                    <div className="flex-1 space-y-2 py-1">
+                      <div className="h-4 bg-slate-100 rounded animate-pulse w-3/4" />
+                      <div className="h-3 bg-slate-100 rounded animate-pulse w-1/2" />
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors">
-                      Ban da hoan thanh giao an "Vat ly Lop 10 - Chuong 1"
-                    </h4>
-                    <p className="text-sm text-slate-500 mt-1 font-medium">Ho tro boi AI Editor - 2 gio truoc</p>
-                  </div>
+                ))
+              ) : recentPlans.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">
+                  Chua co hoat dong nao. Hay tao giao an dau tien!
                 </div>
-              ))}
+              ) : (
+                recentPlans.map((plan, idx) => (
+                  <div
+                    key={plan.id}
+                    className="flex gap-4 group cursor-pointer p-4 hover:bg-slate-50 rounded-2xl transition-all"
+                    onClick={() => navigate(`/lesson-plans/${plan.id}`)}
+                  >
+                    <div className="w-12 h-12 bg-slate-100 rounded-xl flex-shrink-0 flex items-center justify-center font-bold text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-sm">
+                      {String(idx + 1).padStart(2, '0')}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors truncate">
+                        {plan.title || "Giao an khong tieu de"}
+                      </h4>
+                      <p className="text-sm text-slate-500 mt-1 font-medium">
+                        {plan.aiGenerated ? "Ho tro boi AI" : "Tu soan"}
+                        {plan.subject ? ` · ${plan.subject}` : ""}
+                        {plan.gradeLevel ? ` Lop ${plan.gradeLevel}` : ""}
+                        {" · "}{timeAgo(plan.updatedAt)}
+                      </p>
+                    </div>
+                    <span className={`self-start mt-1 px-2 py-0.5 text-[10px] font-bold rounded-full flex-shrink-0 ${
+                      plan.status === "PUBLISHED"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-yellow-100 text-yellow-700"
+                    }`}>
+                      {plan.status === "PUBLISHED" ? "Published" : "Draft"}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 

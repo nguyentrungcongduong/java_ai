@@ -12,7 +12,7 @@ const SUBJECTS = [
   'Toan', 'Ngu van', 'Tieng Anh', 'Vat ly', 'Hoa hoc',
   'Sinh hoc', 'Lich su', 'Dia ly', 'GDCD', 'Tin hoc', 'Cong nghe',
 ]
-const GRADES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+const GRADES = ['10', '11', '12']
 
 const selectCls =
   'h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus:border-ring'

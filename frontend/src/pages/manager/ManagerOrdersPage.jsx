@@ -2,17 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { subscriptionsApi } from '../../features/subscriptions/subscriptionsApi';
 
+const formatVND = (amount) => {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+};
+
 const ManagerOrdersPage = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('ALL');
+  const [error, setError] = useState(null);
 
   const fetchOrders = async () => {
     try {
+      setError(null);
       const res = await subscriptionsApi.getAllOrders();
-      setOrders(res.data);
+      setOrders(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
       console.error("Lỗi khi tải đơn hàng:", error);
+      setError('Không thể tải danh sách đơn hàng. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
@@ -53,6 +61,11 @@ const ManagerOrdersPage = () => {
         </select>
       </div>
 
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
       ) : (
@@ -85,7 +98,7 @@ const ManagerOrdersPage = () => {
                       <div className="text-xs text-slate-500">{order.userEmail}</div>
                     </td>
                     <td className="p-4 text-sm text-slate-600">{order.packageName}</td>
-                    <td className="p-4 text-sm font-medium text-slate-800">${order.amountPaid}</td>
+                    <td className="p-4 text-sm font-medium text-slate-800">{formatVND(order.amountPaid)}</td>
                     <td className="p-4 text-sm text-slate-600 capitalize">{order.paymentMethod}</td>
                     <td className="p-4">
                       <span className={`px-2.5 py-1 text-xs font-semibold rounded-full 

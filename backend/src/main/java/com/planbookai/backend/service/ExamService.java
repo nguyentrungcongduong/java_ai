@@ -281,6 +281,37 @@ public class ExamService {
             return new ArrayList<>();
         }
 
+        // Validate: bank phải tồn tại
+        QuestionBank bank = questionBankRepository.findById(request.getBankId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Ngân hàng câu hỏi không tồn tại: bank_id=" + request.getBankId()));
+
+        // Validate: môn học của bank phải khớp với môn của đề thi
+        // Dùng normalize để bỏ dấu tiếng Việt trước khi so sánh
+        // VD: "Hoa hoc" == "Hóa học" sau normalize
+        if (bank.getSubject() != null && request.getSubject() != null) {
+            String bankSubjectNorm = java.text.Normalizer
+                    .normalize(bank.getSubject(), java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{M}", "")
+                    .replaceAll("đ", "d").replaceAll("Đ", "D")
+                    .trim().toLowerCase();
+            String reqSubjectNorm = java.text.Normalizer
+                    .normalize(request.getSubject(), java.text.Normalizer.Form.NFD)
+                    .replaceAll("\\p{M}", "")
+                    .replaceAll("đ", "d").replaceAll("Đ", "D")
+                    .trim().toLowerCase();
+            if (!bankSubjectNorm.equals(reqSubjectNorm)) {
+                throw new IllegalArgumentException(
+                        "Môn học không khớp: ngân hàng câu hỏi \"" + bank.getName() +
+                        "\" thuộc môn \"" + bank.getSubject() +
+                        "\" nhưng đề thi yêu cầu môn \"" + request.getSubject() + "\". " +
+                        "Vui lòng chọn đúng ngân hàng câu hỏi hoặc bỏ trống bank_id để AI sinh toàn bộ câu.");
+            }
+        }
+
+        log.info("[ExamService] Fetching questions from bank id={} name='{}' subject='{}'",
+                bank.getId(), bank.getName(), bank.getSubject());
+
         return questionRepository.findByBankId(request.getBankId())
                 .stream()
                 .filter(q -> q.getIsApproved() != null && q.getIsApproved())
@@ -288,6 +319,7 @@ public class ExamService {
                 .filter(q -> matchesTopic(q, request.getTopic()))
                 .collect(Collectors.toList()); // mutable list để shuffle
     }
+
 
     private boolean matchesType(Question q, Question.QuestionType type) {
         if (type == null) return true;

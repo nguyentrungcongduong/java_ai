@@ -48,8 +48,15 @@ public class QuestionService {
         if (hasRole(user, Role.RoleName.ADMIN) || hasRole(user, Role.RoleName.MANAGER)) {
             return getAllBanks();
         }
-        return bankRepository.findByCreatedById(user.getId()).stream()
-                .map(this::mapToBankDTO)
+        // Lấy bank của chính mình
+        List<QuestionBank> ownBanks = bankRepository.findByCreatedById(user.getId());
+        // Lấy bank công khai của người khác
+        List<QuestionBank> publicBanks = bankRepository.findByIsPublishedTrue().stream()
+                .filter(b -> b.getCreatedBy() == null || !b.getCreatedBy().getId().equals(user.getId()))
+                .toList();
+
+        return java.util.stream.Stream.concat(ownBanks.stream(), publicBanks.stream())
+                .map(b -> mapToBankDTOWithOwner(b, user.getId()))
                 .toList();
     }
 
@@ -256,15 +263,22 @@ public class QuestionService {
     }
 
     private QuestionDTO.QuestionBankDTO mapToBankDTO(QuestionBank bank) {
+        return mapToBankDTOWithOwner(bank, null);
+    }
+
+    private QuestionDTO.QuestionBankDTO mapToBankDTOWithOwner(QuestionBank bank, Long currentUserId) {
+        Long ownerId = bank.getCreatedBy() != null ? bank.getCreatedBy().getId() : null;
+        boolean isOwn = currentUserId != null && currentUserId.equals(ownerId);
         return QuestionDTO.QuestionBankDTO.builder()
                 .id(bank.getId())
                 .name(bank.getName())
                 .subject(bank.getSubject())
                 .gradeLevel(bank.getGradeLevel())
                 .description(bank.getDescription())
-                .createdById(bank.getCreatedBy() != null ? bank.getCreatedBy().getId() : null)
+                .createdById(ownerId)
                 .createdByName(bank.getCreatedBy() != null ? bank.getCreatedBy().getFullName() : null)
                 .isPublished(bank.getIsPublished())
+                .isOwnBank(isOwn)
                 .createdAt(bank.getCreatedAt())
                 .build();
     }

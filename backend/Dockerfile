@@ -25,7 +25,7 @@ EXPOSE 8080
 CMD ["java", \
      "-XX:+UseContainerSupport", \
      "-XX:MaxRAMPercentage=70.0", \
-     "-XX:+UseG1GC", \
+     "-XX:+UseSerialGC", \
      "-XX:+TieredCompilation", \
      "-Djava.security.egd=file:/dev/./urandom", \
      "-jar", "app.jar"]

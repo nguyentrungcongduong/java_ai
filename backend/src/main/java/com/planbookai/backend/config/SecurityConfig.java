@@ -20,15 +20,21 @@ import java.util.Arrays;
 import jakarta.servlet.http.HttpServletResponse;
 
 
+import org.springframework.beans.factory.annotation.Value;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true) // Bật @PreAuthorize / @PostAuthorize
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final String frontendUrl;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            @Value("${app.frontend-url}") String frontendUrl) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.frontendUrl = frontendUrl;
     }
 
     @Bean
@@ -103,7 +109,17 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000", "http://localhost:3001", "http://localhost:5173"));
+        java.util.List<String> allowedOrigins = new java.util.ArrayList<>(Arrays.asList(
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:5173"
+        ));
+        if (frontendUrl != null && !frontendUrl.isBlank()) {
+            Arrays.stream(frontendUrl.split(","))
+                  .map(String::trim)
+                  .forEach(allowedOrigins::add);
+        }
+        configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);

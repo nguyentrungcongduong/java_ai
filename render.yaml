@@ -10,6 +10,8 @@ services:
     plan: free
     healthCheckPath: /api/v1/auth/health
     envVars:
+      - key: PORT
+        value: "8080"
       # ── Database (Aiven MySQL) ──────────────────────────────────────────────
       - key: MYSQL_HOST
         sync: false          # mysql-197ff7a9-congduongngu...686f.c.aivencloud.com

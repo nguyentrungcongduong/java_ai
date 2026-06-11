@@ -2,7 +2,7 @@ spring:
   application:
     name: backend
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:planbookai}?useSSL=${MYSQL_USE_SSL:false}&requireSSL=${MYSQL_USE_SSL:false}&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:planbookai}?useSSL=${MYSQL_USE_SSL:false}&requireSSL=${MYSQL_USE_SSL:false}&allowPublicKeyRetrieval=true&serverTimezone=UTC&connectTimeout=10000&socketTimeout=10000
     username: ${MYSQL_USER:root}
     password: ${MYSQL_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -40,7 +40,7 @@ springdoc:
     tags-sorter: alpha
 
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 gemini:
   api-key: ${GEMINI_API_KEY:}

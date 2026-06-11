@@ -10,6 +10,7 @@ import com.planbookai.backend.dto.QuestionDTO;
 import com.planbookai.backend.exception.AIServiceException;
 import com.planbookai.backend.model.entity.LessonPlan;
 import com.planbookai.backend.model.entity.Question;
+import com.planbookai.backend.model.entity.User;
 import com.planbookai.backend.util.PromptBuilder;
 import com.planbookai.backend.util.PromptBuilder.LessonFramework;
 import org.slf4j.Logger;
@@ -17,6 +18,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,14 +40,118 @@ public class GeminiAIService {
     private final Client geminiClient;
     private final PromptBuilder promptBuilder;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
+    private final AiRateLimitService rateLimitService;
+    private final CurrentUserService currentUserService;
 
+    // ── Gemini config ──────────────────────────────────────────────────────────
     @Value("${gemini.model:gemini-2.0-flash}")
     private String model;
 
-    public GeminiAIService(Optional<Client> geminiClient, PromptBuilder promptBuilder, ObjectMapper objectMapper) {
+    // ── Groq config (ưu tiên nếu có key) ─────────────────────────────────────
+    @Value("${groq.api-key:}")
+    private String groqApiKey;
+
+    @Value("${groq.model:llama-3.3-70b-versatile}")
+    private String groqModel;
+
+    @Value("${groq.base-url:https://api.groq.com/openai/v1}")
+    private String groqBaseUrl;
+
+    public GeminiAIService(Optional<Client> geminiClient, PromptBuilder promptBuilder,
+                           ObjectMapper objectMapper, AiRateLimitService rateLimitService,
+                           CurrentUserService currentUserService) {
         this.geminiClient = geminiClient.orElse(null);
         this.promptBuilder = promptBuilder;
         this.objectMapper = objectMapper;
+        this.httpClient = HttpClient.newHttpClient();
+        this.rateLimitService = rateLimitService;
+        this.currentUserService = currentUserService;
+    }
+
+    // ── Rate limit helper ─────────────────────────────────────────────────────
+    /**
+     * Kiểm tra + tăng AI quota cho user hiện tại.
+     * Nếu không có user trong SecurityContext (unauthenticated) thì bỏ qua.
+     */
+    private void enforceRateLimit() {
+        currentUserService.getCurrentUserEntity().ifPresent(rateLimitService::checkAndIncrement);
+    }
+
+    // =========================================================================
+    // AI Provider Router: Groq ưu tiên → Gemini fallback
+    // =========================================================================
+
+    /**
+     * Gọi AI provider theo thứ tự ưu tiên:
+     * 1. Groq (nếu GROQ_API_KEY được cấu hình)
+     * 2. Gemini (nếu GEMINI_API_KEY được cấu hình)
+     */
+    private String callAIProvider(String prompt) {
+        if (groqApiKey != null && !groqApiKey.isBlank()) {
+            log.debug("[AI] Using Groq provider (model={})", groqModel);
+            return callGroqApi(prompt);
+        }
+        if (geminiClient != null) {
+            log.debug("[AI] Using Gemini provider (model={})", model);
+            try {
+                GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
+                return response != null ? response.text() : null;
+            } catch (Exception e) {
+                String msg = e.getMessage();
+                log.error("[AI] Gemini call failed: {}", msg, e);
+                if (msg != null && msg.contains("API key not valid")) {
+                    throw new AIServiceException("API Key Gemini không hợp lệ.");
+                }
+                throw new AIServiceException("Gemini AI service is unavailable: " + msg);
+            }
+        }
+        throw new AIServiceException("Không có AI provider nào được cấu hình. Vui lòng set GROQ_API_KEY hoặc GEMINI_API_KEY.");
+    }
+
+    /**
+     * Gọi Groq API (OpenAI-compatible format).
+     */
+    @SuppressWarnings("unchecked")
+    private String callGroqApi(String prompt) {
+        try {
+            Map<String, Object> message = Map.of("role", "user", "content", prompt);
+            Map<String, Object> body = Map.of(
+                    "model", groqModel,
+                    "messages", List.of(message),
+                    "temperature", 0.7
+            );
+            String requestBody = objectMapper.writeValueAsString(body);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(groqBaseUrl + "/chat/completions"))
+                    .header("Authorization", "Bearer " + groqApiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                log.error("[AI] Groq returned HTTP {}: {}", response.statusCode(), response.body());
+                throw new AIServiceException("Groq API error " + response.statusCode() + ": " + response.body());
+            }
+
+            Map<String, Object> responseMap = objectMapper.readValue(
+                    response.body(), new TypeReference<Map<String, Object>>() {});
+            List<Map<String, Object>> choices = (List<Map<String, Object>>) responseMap.get("choices");
+            if (choices == null || choices.isEmpty()) {
+                throw new AIServiceException("Groq returned empty choices.");
+            }
+            Map<String, Object> messageObj = (Map<String, Object>) choices.get(0).get("message");
+            return (String) messageObj.get("content");
+
+        } catch (AIServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("[AI] Groq call failed: {}", e.getMessage(), e);
+            throw new AIServiceException("Groq service unavailable: " + e.getMessage());
+        }
     }
 
     // =========================================================================
@@ -58,6 +167,8 @@ public class GeminiAIService {
             Question.Difficulty difficulty,
             Question.QuestionType type,
             int count) {
+
+        enforceRateLimit();
 
         if (geminiClient == null) {
             throw new AIServiceException("Hệ thống AI chưa được thiết lập. Vui lòng liên hệ Admin để cấu hình GEMINI_API_KEY.");
@@ -96,6 +207,8 @@ public class GeminiAIService {
             return List.of();
         }
 
+        enforceRateLimit();
+
         if (geminiClient == null) {
             throw new AIServiceException("Hệ thống AI chưa được thiết lập. Vui lòng liên hệ Admin để cấu hình GEMINI_API_KEY.");
         }
@@ -110,6 +223,82 @@ public class GeminiAIService {
     }
 
     // =========================================================================
+    // Lesson Plan Generation from File (PDF / DOCX)
+    // =========================================================================
+
+    /**
+     * Sinh giáo án từ tài liệu (PDF hoặc DOCX) do giáo viên upload.
+     *
+     * <p>Gửi file kèm prompt lên Gemini multimodal để AI đọc nội dung
+     * và sinh giáo án JSON theo framework đã chọn.
+     *
+     * @param fileBytes      Nội dung nhị phân của file
+     * @param mimeType       MIME type: "application/pdf" hoặc "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+     * @param gradeLevel     Khối lớp
+     * @param duration       Thời lượng tiết học (phút)
+     * @param framework      Framework giảng dạy
+     * @param objectives     Mục tiêu bổ sung (tuỳ chọn)
+     * @return LessonPlanDTO đã parse từ JSON trả về của Gemini
+     */
+    public LessonPlanDTO generateLessonPlanFromFileContent(
+            byte[] fileBytes,
+            String mimeType,
+            String gradeLevel,
+            int duration,
+            LessonFramework framework,
+            String objectives) {
+
+        if (fileBytes == null || fileBytes.length == 0) {
+            throw new AIServiceException("File không hợp lệ hoặc rỗng.");
+        }
+
+        String prompt = promptBuilder.buildLessonPlanFromFilePrompt(gradeLevel, duration, framework, objectives);
+        log.info("[AI] Generating lesson plan from file: gradeLevel={}, duration={}, framework={}, mimeType={}",
+                gradeLevel, duration, framework.label(), mimeType);
+
+        // Gemini hỗ trợ multimodal (gửi cả file). Groq không hỗ trợ → fallback sang text-only prompt
+        String rawResponse;
+        if (groqApiKey != null && !groqApiKey.isBlank()) {
+            // Groq: chỉ gửi prompt text, bó qua file bytes
+            log.warn("[AI] Groq does not support file upload. Generating lesson plan from prompt only (no file content).");
+            rawResponse = callAIProvider(prompt);
+        } else if (geminiClient != null) {
+            // Gemini: gửi cả prompt + file bytes (multimodal)
+            try {
+                com.google.genai.types.Content content = com.google.genai.types.Content.fromParts(
+                        com.google.genai.types.Part.fromText(prompt),
+                        com.google.genai.types.Part.fromBytes(fileBytes, mimeType));
+                com.google.genai.types.GenerateContentResponse response =
+                        geminiClient.models.generateContent(model, content, null);
+                rawResponse = response != null ? response.text() : null;
+            } catch (Exception e) {
+                log.error("[AI] Gemini generateLessonPlanFromFile failed: {}", e.getMessage(), e);
+                throw new AIServiceException("Gemini AI service is unavailable: " + e.getMessage());
+            }
+        } else {
+            throw new AIServiceException("Không có AI provider nào được cấu hình.");
+        }
+
+        log.debug("[AI] Raw file lesson plan response: {}", rawResponse);
+        String cleanedJson = cleanJsonResponse(rawResponse);
+
+        Map<String, Object> raw;
+        try {
+            raw = objectMapper.readValue(cleanedJson, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.error("[AI] Failed to parse file lesson plan JSON: {}", cleanedJson, e);
+            throw new AIServiceException("AI returned invalid JSON for lesson plan. Please try again.");
+        }
+
+        if (raw == null) {
+            throw new AIServiceException("AI returned empty response for lesson plan.");
+        }
+
+        return mapRawToLessonPlan(raw);
+    }
+
+
+    // =========================================================================
     // Lesson Plan Generation
     // =========================================================================
 
@@ -121,38 +310,29 @@ public class GeminiAIService {
             LessonFramework framework,
             String objectives) {
 
+        enforceRateLimit();
+
         String prompt = promptBuilder.buildLessonPlanPrompt(
                 subject, topic, grade, duration, framework, objectives);
 
-        log.info("[GeminiAI] Generating lesson plan: subject={}, topic={}, grade={}, duration={}, framework={}",
+        log.info("[AI] Generating lesson plan: subject={}, topic={}, grade={}, duration={}, framework={}",
                 subject, topic, grade, duration, framework.label());
 
-        String rawResponse;
-        try {
-            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
-            rawResponse = response != null ? response.text() : null;
-        } catch (Exception e) {
-            log.error("[GeminiAI] API call failed: {}", e.getMessage(), e);
-            throw new AIServiceException("Gemini AI service is unavailable: " + e.getMessage());
-        }
+        String rawResponse = callAIProvider(prompt);
 
-        log.debug("[GeminiAI] Raw lesson plan response: {}", rawResponse);
-
+        log.debug("[AI] Raw lesson plan response: {}", rawResponse);
         String cleanedJson = cleanJsonResponse(rawResponse);
 
         Map<String, Object> raw;
         try {
-            raw = objectMapper.readValue(
-                    cleanedJson,
-                    new TypeReference<Map<String, Object>>() {}
-            );
+            raw = objectMapper.readValue(cleanedJson, new TypeReference<Map<String, Object>>() {});
         } catch (Exception e) {
-            log.error("[GeminiAI] Failed to parse lesson plan JSON: {}", cleanedJson, e);
+            log.error("[AI] Failed to parse lesson plan JSON: {}", cleanedJson, e);
             throw new AIServiceException("AI returned invalid JSON for lesson plan. Please try again.");
         }
 
         if (raw == null) {
-            log.error("[GeminiAI] Raw lesson plan map is null");
+            log.error("[AI] Raw lesson plan map is null");
             throw new AIServiceException("AI returned empty response for lesson plan.");
         }
 
@@ -173,34 +353,24 @@ public class GeminiAIService {
      * @return Plain text feedback ngắn gọn (≤ 500 chars)
      */
     public String generateFeedback(GradingFeedbackRequest request) {
-        if (geminiClient == null) {
-            throw new AIServiceException("Hệ thống AI chưa được thiết lập. Vui lòng liên hệ Admin để cấu hình GEMINI_API_KEY.");
-        }
+        enforceRateLimit();
 
         String prompt = buildGradingFeedbackPrompt(request);
-        log.info("[GeminiAI] Generating grading feedback for student={}, exam={}",
+        log.info("[AI] Generating grading feedback for student={}, exam={}",
                 request.getStudentName(), request.getExamTitle());
 
-        String rawResponse;
-        try {
-            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
-            rawResponse = response != null ? response.text() : null;
-        } catch (Exception e) {
-            log.error("[GeminiAI] generateFeedback failed: {}", e.getMessage(), e);
-            throw new AIServiceException("Không thể kết nối với AI: " + e.getMessage());
-        }
+        String rawResponse = callAIProvider(prompt);
 
         if (rawResponse == null || rawResponse.isBlank()) {
             throw new AIServiceException("AI returned empty feedback response.");
         }
 
         String cleaned = rawResponse.trim();
-        // Limit to 500 chars
         if (cleaned.length() > 500) {
             cleaned = cleaned.substring(0, 497) + "...";
         }
 
-        log.debug("[GeminiAI] Raw feedback: {}", cleaned);
+        log.debug("[AI] Raw feedback: {}", cleaned);
         return cleaned;
     }
 
@@ -272,21 +442,9 @@ public class GeminiAIService {
      * @return Văn bản phản hồi từ AI
      */
     public String callAi(String prompt) {
-        if (geminiClient == null) {
-            throw new AIServiceException("Hệ thống AI chưa được thiết lập. Vui lòng liên hệ Admin để cấu hình GEMINI_API_KEY.");
-        }
-
-        try {
-            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
-            return response.text();
-        } catch (Exception e) {
-            String errorMsg = e.getMessage();
-            log.error("[GeminiAI] Lỗi gọi AI: {}", errorMsg);
-            if (errorMsg != null && (errorMsg.contains("API key not valid") || errorMsg.contains("400"))) {
-                throw new AIServiceException("Lỗi xác thực: API Key không hợp lệ. Hãy đảm bảo bạn không nhập thừa dấu ngoặc kép hoặc khoảng trắng.");
-            }
-            throw new AIServiceException("Không thể kết nối với AI: " + errorMsg);
-        }
+        enforceRateLimit();
+        log.debug("[AI] callAi direct prompt");
+        return callAIProvider(prompt);
     }
 
     // =========================================================================
@@ -303,31 +461,17 @@ public class GeminiAIService {
             Question.Difficulty difficulty,
             Question.QuestionType type) {
 
-        String rawResponse;
-        try {
-            GenerateContentResponse response = geminiClient.models.generateContent(model, prompt, null);
-            rawResponse = response != null ? response.text() : null;
-        } catch (Exception e) {
-            String errorMsg = e.getMessage();
-            log.error("[GeminiAI] API call failed: {}", errorMsg, e);
-            if (errorMsg != null && errorMsg.contains("API key not valid")) {
-                throw new AIServiceException("API Key không hợp lệ. Vui lòng kiểm tra lại biến môi trường GEMINI_API_KEY.");
-            }
-            throw new AIServiceException("Gemini AI service is unavailable: " + errorMsg);
-        }
+        log.debug("[AI] callGeminiAndParse → callAIProvider");
+        String rawResponse = callAIProvider(prompt);
 
-        log.debug("[GeminiAI] Raw response: {}", rawResponse);
-
+        log.debug("[AI] Raw response: {}", rawResponse);
         String cleanedJson = cleanJsonResponse(rawResponse);
 
         List<Map<String, Object>> rawQuestions;
         try {
-            rawQuestions = objectMapper.readValue(
-                    cleanedJson,
-                    new TypeReference<List<Map<String, Object>>>() {}
-            );
+            rawQuestions = objectMapper.readValue(cleanedJson, new TypeReference<List<Map<String, Object>>>() {});
         } catch (Exception e) {
-            log.error("[GeminiAI] Failed to parse JSON response: {}", cleanedJson, e);
+            log.error("[AI] Failed to parse JSON response: {}", cleanedJson, e);
             throw new AIServiceException("AI returned invalid JSON. Please try again.");
         }
 

@@ -1,0 +1,65 @@
+# render.yaml — Infrastructure as Code cho Render.com
+# Deploy bằng cách: push file này lên GitHub, vào Render → New → Blueprint
+
+services:
+  - type: web
+    name: planbookai-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /api-docs
+    envVars:
+      # ── Database (Aiven MySQL) ──────────────────────────────────────────────
+      - key: MYSQL_HOST
+        sync: false          # mysql-197ff7a9-congduongngu...686f.c.aivencloud.com
+      - key: MYSQL_PORT
+        value: "19269"       # Port Aiven (không phải 3306)
+      - key: MYSQL_DATABASE
+        value: defaultdb     # hoặc tên DB bạn tạo trên Aiven
+      - key: MYSQL_USER
+        value: avnadmin
+      - key: MYSQL_PASSWORD
+        sync: false          # AVNS_42r1f...
+      - key: MYSQL_USE_SSL
+        value: "true"        # Bắt buộc với Aiven
+
+      # ── Supabase Storage ───────────────────────────────────────────────────
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: planbookai-storage
+      - key: SUPABASE_S3_ENDPOINT
+        sync: false
+      - key: SUPABASE_S3_ACCESS_KEY
+        sync: false
+      - key: SUPABASE_S3_SECRET_KEY
+        sync: false
+
+      # ── AI APIs ────────────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AI_RATE_LIMIT_DAILY
+        value: "10"           # Đổi số này nếu muốn tăng/giảm quota
+
+      # ── Auth ───────────────────────────────────────────────────────────────
+      - key: JWT_SECRET
+        generateValue: true   # Render tự sinh random secret → an toàn
+
+      # ── VNPay ──────────────────────────────────────────────────────────────
+      - key: VNPAY_TMN_CODE
+        sync: false
+      - key: VNPAY_HASH_SECRET
+        sync: false
+      - key: VNPAY_RETURN_URL
+        sync: false
+      - key: VNPAY_IPN_URL
+        sync: false
+
+      # ── CORS / Frontend URL ────────────────────────────────────────────────
+      - key: FRONTEND_URL
+        sync: false           # Điền URL Vercel của bạn: https://planbookai.vercel.app

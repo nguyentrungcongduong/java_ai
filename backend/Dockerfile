@@ -4,16 +4,16 @@ WORKDIR /app
 
 # copy pom trước để cache
 COPY pom.xml .
-RUN mvn dependency:go-offline
+RUN mvn dependency:go-offline -q
 
 # copy source
 COPY src ./src
 
-# build
-RUN mvn clean package -DskipTests
+# build (skip tests khi build image)
+RUN mvn clean package -DskipTests -q
 
-# chạy app
-FROM eclipse-temurin:17-jdk
+# ── Runtime: dùng JRE thay JDK (image nhỏ hơn ~200MB) ──────────────────────
+FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
@@ -21,4 +21,11 @@ COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-CMD ["java", "-jar", "app.jar"]
+# JVM flags tối ưu cho Render free tier (512MB RAM)
+CMD ["java", \
+     "-XX:+UseContainerSupport", \
+     "-XX:MaxRAMPercentage=70.0", \
+     "-XX:+UseG1GC", \
+     "-XX:+TieredCompilation", \
+     "-Djava.security.egd=file:/dev/./urandom", \
+     "-jar", "app.jar"]

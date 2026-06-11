@@ -1,5 +1,8 @@
 package com.planbookai.backend.exception;
 
+import com.planbookai.backend.exception.AiRateLimitException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -19,6 +22,22 @@ import java.util.stream.Collectors;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(AiRateLimitException.class)
+    public ResponseEntity<Map<String, Object>> handleAiRateLimitException(AiRateLimitException e) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", 429);
+        body.put("error", "AI_RATE_LIMIT_EXCEEDED");
+        body.put("message", e.getMessage());
+        body.put("used", e.getUsed());
+        body.put("limit", e.getLimit());
+        body.put("remaining", 0);
+        body.put("resetDate", e.getResetDate().toString());
+        body.put("timestamp", LocalDateTime.now().toString());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(body);
+    }
 
     @ExceptionHandler(AIServiceException.class)
     public ResponseEntity<Map<String, Object>> handleAIServiceException(AIServiceException e) {
@@ -61,6 +80,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException e) {
+        log.error("[500] Unhandled RuntimeException: {}", e.getMessage(), e);
         HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
         String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
 

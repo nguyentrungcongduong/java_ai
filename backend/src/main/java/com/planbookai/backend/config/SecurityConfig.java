@@ -108,23 +108,38 @@ public class SecurityConfig {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        java.util.List<String> allowedOrigins = new java.util.ArrayList<>(Arrays.asList(
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:5173"
-        ));
-        if (frontendUrl != null && !frontendUrl.isBlank()) {
-            Arrays.stream(frontendUrl.split(","))
-                  .map(String::trim)
-                  .forEach(allowedOrigins::add);
-        }
-        configuration.setAllowedOrigins(allowedOrigins);
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
-        configuration.setAllowCredentials(true);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
+        return request -> {
+            String origin = request.getHeader("Origin");
+            CorsConfiguration configuration = new CorsConfiguration();
+            
+            java.util.List<String> allowedOrigins = new java.util.ArrayList<>(Arrays.asList(
+                "http://localhost:3000",
+                "http://localhost:3001",
+                "http://localhost:5173"
+            ));
+            if (frontendUrl != null && !frontendUrl.isBlank()) {
+                Arrays.stream(frontendUrl.split(","))
+                      .map(String::trim)
+                      .map(url -> url.endsWith("/") ? url.substring(0, url.length() - 1) : url)
+                      .forEach(allowedOrigins::add);
+            }
+            
+            if (origin != null) {
+                String normalizedOrigin = origin.trim();
+                if (allowedOrigins.contains(normalizedOrigin) || normalizedOrigin.endsWith(".vercel.app")) {
+                    configuration.setAllowedOrigins(Arrays.asList(normalizedOrigin));
+                } else {
+                    configuration.setAllowedOrigins(allowedOrigins);
+                }
+            } else {
+                configuration.setAllowedOrigins(allowedOrigins);
+            }
+            
+            configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+            configuration.setAllowedHeaders(Arrays.asList("*"));
+            configuration.setExposedHeaders(Arrays.asList("Authorization"));
+            configuration.setAllowCredentials(true);
+            return configuration;
+        };
     }
 }

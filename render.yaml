@@ -8,7 +8,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     plan: free
-    healthCheckPath: /api-docs
+    healthCheckPath: /api/v1/auth/health
     envVars:
       # ── Database (Aiven MySQL) ──────────────────────────────────────────────
       - key: MYSQL_HOST

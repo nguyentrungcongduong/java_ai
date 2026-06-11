@@ -24,6 +24,11 @@ public class AuthController {
         this.authService = authService;
     }
 
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("OK");
+    }
+
     @Operation(summary = "Đăng ký tài khoản mới", description = "Tạo tài khoản Teacher mới. Mặc định role=TEACHER. Email phải chưa tồn tại trong hệ thống.")
     @PostMapping("/register")
     public AuthResponse register(@RequestBody RegisterRequest request) {
